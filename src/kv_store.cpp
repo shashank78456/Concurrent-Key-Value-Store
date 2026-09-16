@@ -1,17 +1,23 @@
 #include <kv_store.hpp>
 
-void KVStore::set(const string &key, const string &value) {
-    lock_guard<mutex> lock(_mutex);
-
-    data[key] = Entry(value);
+size_t KVStore::get_shard_idx(const string &key) const {
+    return hash<string>{}(key)%NUM_SHARDS;
 }
 
-optional<string> KVStore::get(const string &key) {
-    lock_guard<mutex> lock(_mutex);
+void KVStore::set(const string &key, const string &value) {
+    Shard &shard = shards[get_shard_idx(key)];
+    lock_guard<mutex> lock(shard.mtx);
 
-    auto it = data.find(key);
+    shard.data[key] = Entry(value);
+}
 
-    if(it==data.end()) {
+optional<string> KVStore::get(const string &key) const {
+    const Shard &shard = shards[get_shard_idx(key)];
+    lock_guard<mutex> lock(shard.mtx);
+
+    auto it = shard.data.find(key);
+
+    if(it==shard.data.end()) {
         return nullopt;
     }
     
@@ -19,7 +25,8 @@ optional<string> KVStore::get(const string &key) {
 }
 
 bool KVStore::remove(const string &key) {
-    lock_guard<mutex> lock(_mutex);
+    Shard &shard = shards[get_shard_idx(key)];
+    lock_guard<mutex> lock(shard.mtx);
 
-    return data.erase(key) > 0;
+    return shard.data.erase(key) > 0;
 }
