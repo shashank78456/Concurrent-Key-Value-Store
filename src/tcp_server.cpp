@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <thread>
 
-TCPServer::TCPServer(int port, KVStore &store) : server(-1), port(port), store(store) {}
+TCPServer::TCPServer(int port, KVStore &store) : server(-1), port(port), store(store), thread_pool(8) {}
 
 void TCPServer::handle_client(int client) {
     char buffer[4096];
@@ -69,7 +69,7 @@ void TCPServer::start() {
 
     sockaddr_in server_address{};
     server_address.sin_family = AF_INET;
-    server_address.sin_addr.s_addr = INADDR_ANY;
+    server_address.sin_addr.s_addr = INADDR_ANY; // inet_addr("127.0.0.1");
     server_address.sin_port = htons(port);
 
     if(::bind(server, reinterpret_cast<sockaddr*>(&server_address), sizeof(server_address))<0) {
@@ -92,6 +92,10 @@ void TCPServer::start() {
             continue;
         }
 
-        thread(&TCPServer::handle_client, this, client).detach();
+        // thread(&TCPServer::handle_client, this, client).detach();
+
+        thread_pool.enqueue([this, client]() {
+            handle_client(client);
+        });
     }
 }
