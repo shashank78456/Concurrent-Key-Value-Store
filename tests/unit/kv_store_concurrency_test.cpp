@@ -28,7 +28,7 @@ int main() {
                     store.set(key, to_string(i));
                     
                     auto value = store.get(key);
-                    if(!value.has_value() || *value==to_string(i)) {
+                    if(!value.has_value() || *value!=to_string(i)) {
                         thread_errors[t]=1;
                     }
                 }

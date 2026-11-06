@@ -11,6 +11,6 @@ inline void check(bool condition, const string &name, int &failures) {
     }
     else {
         cout << "FAILED " << name << '\n';
-        failures;
+        failures++;
     }
 }

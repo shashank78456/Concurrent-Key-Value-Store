@@ -16,7 +16,7 @@ ThreadPool::ThreadPool(size_t num_threads) {
                     if(stop && tasks.empty())
                         return;
                     
-                    task = move(tasks.front());
+                    task = std::move(tasks.front());
                     tasks.pop();
                 }
 
@@ -32,7 +32,7 @@ void ThreadPool::enqueue(function<void()> task){
         if(stop)
             return;
 
-        tasks.push(move(task));
+        tasks.push(std::move(task));
     }
 
     condition.notify_one();
