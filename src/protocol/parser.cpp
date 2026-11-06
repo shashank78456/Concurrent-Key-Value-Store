@@ -16,7 +16,9 @@ CommandType Parser::parseCommandType(const string& command) {
 Command Parser::parse(const string& request) {
     istringstream stream(request);
     string command;
-    stream >> command;
+
+    if(!(stream >> command))
+        return {};
 
     CommandType type = parseCommandType(command);
 
@@ -41,21 +43,29 @@ Command Parser::parse(const string& request) {
     
         case CommandType::GET: {
             string key;
+            string extra;
 
             stream >> key;
 
             if(key.empty())
                 return {};
 
+            if(stream >> extra)
+                return {};
+            
             return {CommandType::GET, key, ""};
         }
 
         case CommandType::DELETE: {
             string key;
+            string extra;
 
             stream >> key;
 
             if(key.empty())
+                return {};
+            
+            if(stream >> extra)
                 return {};
 
             return {CommandType::DELETE, key, ""};
