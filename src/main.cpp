@@ -1,22 +1,18 @@
-#include "kv_store.hpp"
+#include "tcp_server.hpp"
 
 #include <iostream>
+#include <exception>
 
 int main() {
-    KVStore kvstore;
+    try {
+        KVStore kvstore;
 
-    kvstore.set("name", "Shashank");
-    kvstore.set("language", "C++");
-
-    auto name = kvstore.get("name");
-
-    if(name.has_value()) {
-        cout << "name: " << name.value() << '\n';
+        TCPServer server(6379, kvstore);
+        server.start();
     }
-
-    kvstore.remove("name");
-    if(!kvstore.get("name").has_value()) {
-        cout << "name was removed" << '\n';
+    catch(const exception &e) {
+        cerr << "Server error: " << e.what() << '\n';
+        return 1;
     }
 
     return 0;
