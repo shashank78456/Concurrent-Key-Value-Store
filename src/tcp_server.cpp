@@ -6,50 +6,95 @@
 #include <netinet/in.h>
 #include <stdexcept>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
-#include <thread>
+#include <cerrno>
+
+using namespace std;
+
+bool send_all(int client, const string &response) {
+    size_t total_sent = 0;
+
+    while(total_sent < response.size()) {
+        int flags = 0;
+
+#ifdef MSG_NOSIGNAL
+        flags |= MSG_NOSIGNAL;
+#endif
+
+        ssize_t bytes_sent = send(client, response.data() + total_sent, response.size() - total_sent, flags);
+        
+        if(bytes_sent<=0)
+            return false;
+        
+        total_sent+=bytes_sent;
+    }   
+
+    return true;
+}
 
 TCPServer::TCPServer(int port, KVStore &store) : server(-1), port(port), store(store), thread_pool(8) {}
 
 void TCPServer::handle_client(int client) {
     char buffer[4096];
+    string pending;
 
     while(true) {
         ssize_t bytes_read = recv(client, buffer, sizeof(buffer), 0);
 
         if(bytes_read<=0)
             break;
+        
+        pending.append(buffer, static_cast<size_t>(bytes_read));
+        size_t pos;
 
-        Command command = Parser::parse(string(buffer, bytes_read));
-
-        string response;
-
-        switch(command.type) {
-            case CommandType::SET: {
-                store.set(command.key, command.value);
-                response = "OK\n";
-                break;
+        while((pos = pending.find('\n')) != string::npos) {
+            if(pos > MAX_REQUEST_SIZE) {
+                send_all(client, "ERROR\n");
+                close(client);
+                return;
             }
 
-            case CommandType::GET: {
-                optional<string> value = store.get(command.key);
-                response = value ? *value + "\n" : "NOT FOUND\n";
-                break;
+            string request = pending.substr(0, pos);
+            pending.erase(0, pos+1);
+
+            Command command = Parser::parse(request);
+
+            string response;
+
+            switch(command.type) {
+                case CommandType::SET: {
+                    store.set(command.key, command.value);
+                    response = "OK\n";
+                    break;
+                }
+
+                case CommandType::GET: {
+                    optional<string> value = store.get(command.key);
+                    response = value ? *value + "\n" : "NOT FOUND\n";
+                    break;
+                }
+
+                case CommandType::DELETE: {
+                    response = store.remove(command.key) ? "OK\n" : "NOT FOUND\n";
+                    break;
+
+                }
+
+                case CommandType::INVALID: {
+                    response = "ERROR\n";
+                    break;
+                }
             }
 
-            case CommandType::DELETE: {
-                response = store.remove(command.key) ? "OK\n" : "NOT FOUND\n";
+            if(!send_all(client, response))
                 break;
-
-            }
-
-            case CommandType::INVALID: {
-                response = "ERROR\n";
-                break;
-            }
         }
 
-        send(client, response.data(), response.size(), 0);
+        if(pending.size() > MAX_REQUEST_SIZE) {
+            send_all(client, "ERROR\n");
+            break;
+        }
     }
 
     close(client);
@@ -92,10 +137,28 @@ void TCPServer::start() {
             continue;
         }
 
-        // thread(&TCPServer::handle_client, this, client).detach();
+        size_t current_clients = active_clients.fetch_add(1);
+
+        if(current_clients>=MAX_CLIENTS) {
+            active_clients.fetch_sub(1);
+            close(client);
+            continue;
+        }
+
+        timeval timeout{};
+        timeout.tv_sec = 30;
+
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+#ifdef SO_NOSIGPIPE
+        int no_sigpipe = 1;
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &no_sigpipe, sizeof(timeout));
+#endif
 
         thread_pool.enqueue([this, client]() {
             handle_client(client);
+            active_clients.fetch_sub(1);
         });
     }
 }
