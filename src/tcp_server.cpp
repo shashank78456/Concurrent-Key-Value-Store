@@ -9,8 +9,15 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <cerrno>
+#include <csignal>
 
 using namespace std;
+
+static volatile sig_atomic_t server_running = 1;
+
+void handle_shutdown(int signal) {
+    server_running = 0;
+}
 
 bool send_all(int client, const string &response) {
     size_t total_sent = 0;
@@ -123,6 +130,17 @@ void TCPServer::start() {
     server = socket(AF_INET, SOCK_STREAM, 0);
     if(server<0)
         throw runtime_error("Failed to create server");
+
+    server_running = 1;
+
+    struct sigaction action{};
+    action.sa_handler = handle_shutdown;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+
+    if(sigaction(SIGINT, &action, nullptr)<0 || sigaction(SIGTERM, &action, nullptr)<0) {
+        throw runtime_error("Failed to register signal handler");
+    }
     
     int option = 1;
     
@@ -148,12 +166,15 @@ void TCPServer::start() {
 
     cout << "Server listening on port: " << port << '\n';
 
-    while(true) {
+    while(server_running) {
         int client = accept(server, nullptr, nullptr);
 
         if(client < 0) {
-            if(errno==EINTR)
+            if(errno==EINTR) {
+                if(!server_running)
+                    break;
                 continue;
+            }
             
             cerr << "Failed to accept client\n";
             continue;
@@ -183,4 +204,8 @@ void TCPServer::start() {
             active_clients.fetch_sub(1);
         });
     }
+
+    close(server);
+    server = -1;
+    cout << "Server shut down\n";
 }
