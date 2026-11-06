@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <cerrno>
 #include <csignal>
+#include <poll.h>
+#include <cstring>
 
 using namespace std;
 
@@ -168,13 +170,40 @@ void TCPServer::start() {
 
     cout << "Server listening on port: " << port << '\n';
 
+    pollfd pfd{};
+    pfd.fd = server;
+    pfd.events = POLLIN;
+
     while(server_running) {
+        pfd.revents = 0;
+
+        int ready = poll(&pfd, 1, 500);
+
+        if(ready < 0) {
+            if(errno==EINTR)
+                continue;
+            cerr << "Poll failed: " << strerror(errno) << '\n';
+            break;
+        }
+
+        if(ready==0)
+            continue;
+        
+        if(!server_running)
+            break;
+        
+        if(pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            cerr << "Listening socket error\n";
+            break;
+        }
+
+        if(!(pfd.revents & POLLIN))
+            continue;
+
         int client = accept(server, nullptr, nullptr);
 
         if(client < 0) {
-            if(errno==EINTR) {
-                if(!server_running)
-                    break;
+            if(errno==EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
                 continue;
             }
             
@@ -200,11 +229,17 @@ void TCPServer::start() {
         int no_sigpipe = 1;
         setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
 #endif
-
-        thread_pool.enqueue([this, client]() {
-            handle_client(client);
+        try {
+            thread_pool.enqueue([this, client]() {
+                handle_client(client);
+                active_clients.fetch_sub(1);
+            });   
+        }
+        catch(exception &e) {
             active_clients.fetch_sub(1);
-        });
+            close(client);
+            cerr << "Failed to enqueue client: " << e.what() << '\n';
+        }
     }
 
     close(server);
