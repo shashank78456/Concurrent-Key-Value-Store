@@ -8,7 +8,8 @@ Concurrent in-memory key-value store with a sharded hash table, thread-safe oper
 4. Connect to the server `nc localhost 6379`
    
 ### Commands
-
+```
 SET <key> <value>
 GET <key>
 DELETE <key>
+```

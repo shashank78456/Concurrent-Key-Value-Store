@@ -24,8 +24,14 @@ bool send_all(int client, const string &response) {
 
         ssize_t bytes_sent = send(client, response.data() + total_sent, response.size() - total_sent, flags);
         
-        if(bytes_sent<=0)
+        if(bytes_sent==0)
             return false;
+        
+        if(bytes_sent<0) {
+            if(errno==EINTR)
+                continue;
+            return false;
+        }
         
         total_sent+=bytes_sent;
     }   
@@ -42,8 +48,16 @@ void TCPServer::handle_client(int client) {
     while(true) {
         ssize_t bytes_read = recv(client, buffer, sizeof(buffer), 0);
 
-        if(bytes_read<=0)
+        if(bytes_read==0)
             break;
+        
+        if(bytes_read<0) {
+            if(errno==EINTR)
+                continue;
+            if(errno==EAGAIN || errno==EWOULDBLOCK)
+                break;
+            break;
+        }
         
         pending.append(buffer, static_cast<size_t>(bytes_read));
         size_t pos;
@@ -57,6 +71,9 @@ void TCPServer::handle_client(int client) {
 
             string request = pending.substr(0, pos);
             pending.erase(0, pos+1);
+
+            if(!request.empty() && request.back()=='\r')
+                request.pop_back();
 
             Command command = Parser::parse(request);
 
@@ -87,8 +104,10 @@ void TCPServer::handle_client(int client) {
                 }
             }
 
-            if(!send_all(client, response))
-                break;
+            if(!send_all(client, response)) {
+                close(client);
+                return;
+            }
         }
 
         if(pending.size() > MAX_REQUEST_SIZE) {
@@ -133,6 +152,9 @@ void TCPServer::start() {
         int client = accept(server, nullptr, nullptr);
 
         if(client < 0) {
+            if(errno==EINTR)
+                continue;
+            
             cerr << "Failed to accept client\n";
             continue;
         }
@@ -149,11 +171,11 @@ void TCPServer::start() {
         timeout.tv_sec = 30;
 
         setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
 #ifdef SO_NOSIGPIPE
         int no_sigpipe = 1;
-        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &no_sigpipe, sizeof(timeout));
+        setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(timeout));
 #endif
 
         thread_pool.enqueue([this, client]() {
