@@ -6,6 +6,7 @@ Concurrent in-memory key-value store with a sharded hash table, thread-safe oper
 2. Build `cmake --build build`
 3. Start the server `./build/kvstore`
 4. Connect to the server `nc localhost 6379`
+5. Run tests `ctest --test-dir build --output-on-failure`
    
 ### Commands
 ```
