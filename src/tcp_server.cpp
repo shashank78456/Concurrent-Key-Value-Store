@@ -139,6 +139,8 @@ void TCPServer::start() {
     action.sa_flags = 0;
 
     if(sigaction(SIGINT, &action, nullptr)<0 || sigaction(SIGTERM, &action, nullptr)<0) {
+        close(server);
+        server = -1;
         throw runtime_error("Failed to register signal handler");
     }
     
@@ -196,7 +198,7 @@ void TCPServer::start() {
 
 #ifdef SO_NOSIGPIPE
         int no_sigpipe = 1;
-        setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(timeout));
+        setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
 #endif
 
         thread_pool.enqueue([this, client]() {
@@ -207,5 +209,5 @@ void TCPServer::start() {
 
     close(server);
     server = -1;
-    cout << "Server shut down\n";
+    cout << "\nServer shutting down...\n";
 }
